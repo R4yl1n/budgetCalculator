@@ -1,4 +1,4 @@
-#myown application to track my expenses
+
 library(shiny)
 library(pdftools)
 library(stringr)
