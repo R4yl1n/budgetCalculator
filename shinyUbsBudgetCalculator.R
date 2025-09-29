@@ -28,25 +28,25 @@ server <- function(input, output, session) {
     file <- input$pdf_file$datapath
     pages <- pdf_text(file)
     
-    # Zahlenparser, der auch Apostrophe etc. handhabt
+    # Zahlenparser: entfernt Tausender-Trennzeichen und wandelt in numeric
     clean_amount <- function(x) {
       if (is.na(x) || x == "") return(NA_real_)
-      x <- str_replace_all(x, "[’'`]", "")   # alle Arten von Apostrophen entfernen
-      x <- str_replace(x, ",", ".")          # Komma → Punkt
-      neg <- str_detect(x, "^\\(.*\\)$")     # Klammern als Minuszeichen
+      x <- str_replace_all(x, "[’'`]", "")   # verschiedene Apostrophe entfernen
+      x <- str_replace_all(x, ",", "")       # UBS-Tausendertrennzeichen "," entfernen
+      neg <- str_detect(x, "^\\(.*\\)$")     # Klammern = Minus
       x <- str_remove_all(x, "[()]")
       num <- suppressWarnings(as.numeric(x))
       if (neg) num <- -num
       num
     }
     
-    # PDF-Zeilen extrahieren & reinigen
+    # PDF-Zeilen extrahieren & irrelevante Sachen raus
     all_lines <- unlist(lapply(pages, function(p) trimws(str_split(p, "\n")[[1]])))
     all_lines <- all_lines[!str_detect(all_lines,
                                        regex("Displayed in Assets online|UBS Switzerland AG|Page \\d+/|Opening balance|Closing balance|Turnover|For all your questions",
                                              ignore_case = TRUE))]
     
-    # Blöcke pro Transaktion bilden
+    # Transaktionsblöcke anhand Datum erkennen
     date_regex <- "^\\d{2}\\.\\d{2}\\.\\d{4}"
     blocks <- list()
     i <- 1
@@ -66,8 +66,8 @@ server <- function(input, output, session) {
       }
     }
     
-    # Regex für Zahlen mit 2 Nachkommastellen
-    decimal_pat <- "\\(?-?[0-9’'\\.,]+[\\.,][0-9]{2}\\)?"
+    # Regex für Beträge mit Dezimalpunkt und 2 Nachkommastellen
+    decimal_pat <- "\\(?-?[0-9’',\\.]+[\\.][0-9]{2}\\)?"
     
     results <- list()
     for (blk in blocks) {
@@ -93,7 +93,7 @@ server <- function(input, output, session) {
     
     tx_df <- bind_rows(results) %>% filter(!is.na(Betrag))
     
-    # Filter anwenden, falls Text eingegeben wurde
+    # Optionaler Text-Filter
     if (nchar(input$filter_text) > 0) {
       filtered_df <- tx_df %>% filter(str_detect(Text, regex(input$filter_text, ignore_case = TRUE)))
       return(list(df = filtered_df, sum = sum(filtered_df$Betrag, na.rm = TRUE)))
