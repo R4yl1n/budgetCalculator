@@ -28,22 +28,25 @@ server <- function(input, output, session) {
     file <- input$pdf_file$datapath
     pages <- pdf_text(file)
     
+    # Zahlenparser, der auch Apostrophe etc. handhabt
     clean_amount <- function(x) {
       if (is.na(x) || x == "") return(NA_real_)
-      x <- str_replace_all(x, "'", "")
-      x <- str_replace(x, ",", ".")
-      neg <- str_detect(x, "^\\(.*\\)$")
+      x <- str_replace_all(x, "[’'`]", "")   # alle Arten von Apostrophen entfernen
+      x <- str_replace(x, ",", ".")          # Komma → Punkt
+      neg <- str_detect(x, "^\\(.*\\)$")     # Klammern als Minuszeichen
       x <- str_remove_all(x, "[()]")
-      num <- as.numeric(x)
+      num <- suppressWarnings(as.numeric(x))
       if (neg) num <- -num
       num
     }
     
+    # PDF-Zeilen extrahieren & reinigen
     all_lines <- unlist(lapply(pages, function(p) trimws(str_split(p, "\n")[[1]])))
     all_lines <- all_lines[!str_detect(all_lines,
                                        regex("Displayed in Assets online|UBS Switzerland AG|Page \\d+/|Opening balance|Closing balance|Turnover|For all your questions",
                                              ignore_case = TRUE))]
     
+    # Blöcke pro Transaktion bilden
     date_regex <- "^\\d{2}\\.\\d{2}\\.\\d{4}"
     blocks <- list()
     i <- 1
@@ -63,18 +66,23 @@ server <- function(input, output, session) {
       }
     }
     
-    decimal_pat <- "\\(?-?[0-9'\\.,]+[\\.,][0-9]{2}\\)?"
+    # Regex für Zahlen mit 2 Nachkommastellen
+    decimal_pat <- "\\(?-?[0-9’'\\.,]+[\\.,][0-9]{2}\\)?"
+    
     results <- list()
     for (blk in blocks) {
       datum <- str_extract(blk, date_regex)
       rest  <- str_trim(str_remove(blk, fixed(datum)))
       nums <- str_extract_all(rest, decimal_pat)[[1]]
+      
       Betrag <- if(length(nums) >= 1) clean_amount(nums[1]) else NA_real_
       Balance <- if(length(nums) >= 2) clean_amount(nums[length(nums)]) else NA_real_
+      
       text <- rest
-      if (!is.na(Betrag)) text <- str_remove(text, fixed(nums[1]))
-      if (!is.na(Balance) && length(nums) > 1) text <- str_remove(text, fixed(nums[length(nums)]))
+      if (!is.na(Betrag)) text <- str_remove(text, regex(nums[1]))
+      if (!is.na(Balance) && length(nums) > 1) text <- str_remove(text, regex(nums[length(nums)]))
       text <- str_squish(text)
+      
       results <- append(results, list(tibble(
         Datum   = datum,
         Text    = text,
